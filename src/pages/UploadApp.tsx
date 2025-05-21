@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,8 @@ import { Label } from "@/components/ui/label";
 import { Upload, XCircle, File } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { v4 as uuidv4 } from "uuid";
 
 interface UploadFormData {
   appName: string;
@@ -62,6 +65,7 @@ const UploadApp = () => {
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [screenshots, setScreenshots] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const navigate = useNavigate();
 
   const form = useForm<UploadFormData>({
     defaultValues: {
@@ -137,29 +141,90 @@ const UploadApp = () => {
     setUploading(true);
 
     try {
-      // This is where we'd integrate with Supabase
-      // - Upload the APK to storage
-      // - Upload the icon and screenshots to storage
-      // - Create a record in the apps table with all the metadata
+      // Check if user is logged in
+      const { data: userData, error: userError } = await supabase.auth.getUser();
       
-      console.log("Form data:", data);
-      console.log("APK file:", apkFile);
-      console.log("Icon:", iconFile);
-      console.log("Screenshots:", screenshots);
+      if (userError || !userData.user) {
+        toast.error("You must be logged in to upload an app");
+        navigate("/login");
+        return;
+      }
       
-      // Simulate upload delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const userId = userData.user.id;
       
-      toast.success("App uploaded successfully! It will be reviewed before publishing.");
+      // 1. Upload the APK to storage
+      const appId = uuidv4();
+      const apkFileName = `${appId}/${apkFile.name.replace(/\s+/g, '-').toLowerCase()}`;
+      const { error: apkError, data: apkData } = await supabase.storage
+        .from('app_files')
+        .upload(apkFileName, apkFile);
+        
+      if (apkError) throw new Error(`APK upload failed: ${apkError.message}`);
       
-      // Reset form
-      form.reset();
-      setApkFile(null);
-      setIconFile(null);
-      setScreenshots([]);
+      // 2. Upload the icon
+      const iconFileName = `${appId}/icon-${Date.now()}.${iconFile.name.split('.').pop()}`;
+      const { error: iconError, data: iconData } = await supabase.storage
+        .from('app_images')
+        .upload(iconFileName, iconFile);
+        
+      if (iconError) throw new Error(`Icon upload failed: ${iconError.message}`);
+      
+      // 3. Upload the screenshots
+      const screenshotUrls: string[] = [];
+      
+      for (let i = 0; i < screenshots.length; i++) {
+        const screenshot = screenshots[i];
+        const screenshotFileName = `${appId}/screenshot-${i + 1}.${screenshot.name.split('.').pop()}`;
+        
+        const { error: screenshotError, data: screenshotData } = await supabase.storage
+          .from('app_images')
+          .upload(screenshotFileName, screenshot);
+          
+        if (screenshotError) throw new Error(`Screenshot upload failed: ${screenshotError.message}`);
+        
+        const screenshotUrl = supabase.storage
+          .from('app_images')
+          .getPublicUrl(screenshotFileName).data.publicUrl;
+          
+        screenshotUrls.push(screenshotUrl);
+      }
+      
+      // Get public URLs for APK and icon
+      const apkUrl = supabase.storage
+        .from('app_files')
+        .getPublicUrl(apkFileName).data.publicUrl;
+        
+      const iconUrl = supabase.storage
+        .from('app_images')
+        .getPublicUrl(iconFileName).data.publicUrl;
+      
+      // 4. Create a record in the apps table
+      const { error: appError } = await supabase
+        .from('apps')
+        .insert({
+          id: appId,
+          name: data.appName,
+          developer_id: userId,
+          description: data.description,
+          category: data.category,
+          version: data.version,
+          apk_file_url: apkUrl,
+          icon_url: iconUrl,
+          banner_url: screenshotUrls[0] // Using the first screenshot as banner
+        });
+        
+      if (appError) throw new Error(`App record creation failed: ${appError.message}`);
+      
+      toast.success("App uploaded and published successfully!");
+      
+      // Redirect to the app detail page
+      setTimeout(() => {
+        navigate(`/app/${appId}`);
+      }, 2000);
+      
     } catch (error) {
       console.error("Error uploading app:", error);
-      toast.error("Error uploading app. Please try again.");
+      toast.error(`Error uploading app: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setUploading(false);
     }
@@ -173,7 +238,7 @@ const UploadApp = () => {
             <div className="bg-gradient-to-r from-brand-500 to-purple-500 p-8 text-white">
               <h1 className="text-2xl md:text-3xl font-bold">Upload Your App</h1>
               <p className="mt-2 opacity-90">
-                Share your Android application with our community.
+                Share your Android application with our community. Your app will be published immediately after upload.
               </p>
             </div>
             
@@ -558,12 +623,12 @@ const UploadApp = () => {
                       {uploading ? (
                         <>
                           <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
-                          Uploading...
+                          Uploading and Publishing...
                         </>
                       ) : (
                         <>
                           <Upload className="mr-2 h-4 w-4" />
-                          Submit App
+                          Upload & Publish App
                         </>
                       )}
                     </Button>
