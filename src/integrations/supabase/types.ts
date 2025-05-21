@@ -9,7 +9,125 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      apps: {
+        Row: {
+          apk_file_url: string
+          banner_url: string | null
+          category: string
+          created_at: string
+          description: string | null
+          developer_id: string
+          downloads: number
+          icon_url: string | null
+          id: string
+          name: string
+          rating: number | null
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          apk_file_url: string
+          banner_url?: string | null
+          category: string
+          created_at?: string
+          description?: string | null
+          developer_id: string
+          downloads?: number
+          icon_url?: string | null
+          id?: string
+          name: string
+          rating?: number | null
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          apk_file_url?: string
+          banner_url?: string | null
+          category?: string
+          created_at?: string
+          description?: string | null
+          developer_id?: string
+          downloads?: number
+          icon_url?: string | null
+          id?: string
+          name?: string
+          rating?: number | null
+          updated_at?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "apps_developer_id_fkey"
+            columns: ["developer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      downloads: {
+        Row: {
+          app_id: string
+          downloaded_at: string
+          id: string
+          ip_address: string | null
+          user_id: string | null
+        }
+        Insert: {
+          app_id: string
+          downloaded_at?: string
+          id?: string
+          ip_address?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          app_id?: string
+          downloaded_at?: string
+          id?: string
+          ip_address?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "downloads_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "downloads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string | null
+          id: string
+          username: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id: string
+          username: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          username?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
