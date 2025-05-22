@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -108,13 +107,29 @@ const UploadApp = () => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
+        
+        // If user just logged in and there was a pending upload, restore form data
+        if (session && sessionStorage.getItem('pendingUploadStatus')) {
+          const pendingForm = sessionStorage.getItem('pendingUploadForm');
+          if (pendingForm) {
+            try {
+              const formData = JSON.parse(pendingForm);
+              form.reset(formData);
+              sessionStorage.removeItem('pendingUploadForm');
+              sessionStorage.removeItem('pendingUploadStatus');
+              toast.info("You can now continue with your app upload");
+            } catch (error) {
+              console.error("Error restoring form data:", error);
+            }
+          }
+        }
       }
     );
 
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, []);
+  }, [form]);
 
   const handleApkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -162,6 +177,18 @@ const UploadApp = () => {
       sessionStorage.setItem('pendingUploadForm', JSON.stringify(form.getValues()));
       sessionStorage.setItem('pendingUploadStatus', 'true');
     }
+    
+    // If we have files selected, try to preserve them
+    if (apkFile) {
+      sessionStorage.setItem('hasApkFile', 'true');
+    }
+    if (iconFile) {
+      sessionStorage.setItem('hasIconFile', 'true');
+    }
+    if (screenshots.length > 0) {
+      sessionStorage.setItem('hasScreenshots', JSON.stringify(screenshots.length));
+    }
+    
     toast.info("Please sign in to upload your app");
     navigate("/login", { state: { returnPath: "/upload" } });
   };

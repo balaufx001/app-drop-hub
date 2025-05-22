@@ -1,32 +1,41 @@
 
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
+import { supabase } from "@/integrations/supabase/client";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get the return path from location state or default to "/"
+  const returnPath = location.state?.returnPath || "/";
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     
     try {
-      // This would be replaced with Supabase authentication
-      console.log("Login attempt:", email, password);
+      // Actual login with Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       
-      // Simulate login delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (error) throw error;
       
       toast.success("Successfully logged in!");
-      navigate("/");
+      
+      // Navigate back to the return path (upload page if that's where user came from)
+      navigate(returnPath);
     } catch (error) {
       console.error("Login error:", error);
       toast.error("Failed to log in. Please check your credentials.");
