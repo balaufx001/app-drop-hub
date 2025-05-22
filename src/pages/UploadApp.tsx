@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import Layout from "@/components/Layout";
@@ -23,8 +23,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Upload, XCircle, File } from "lucide-react";
+import { Upload, XCircle, File, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { v4 as uuidv4 } from "uuid";
@@ -65,6 +66,14 @@ const UploadApp = () => {
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [screenshots, setScreenshots] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{
+    step: string;
+    progress: number;
+    error?: string;
+    appId?: string;
+  } | null>(null);
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   const form = useForm<UploadFormData>({
@@ -81,6 +90,31 @@ const UploadApp = () => {
       whatsNew: ""
     }
   });
+
+  useEffect(() => {
+    const getSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        setSession(data.session);
+      } catch (error) {
+        console.error("Error fetching session:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    getSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+      }
+    );
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const handleApkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -122,7 +156,38 @@ const UploadApp = () => {
     setScreenshots(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleLoginRedirect = () => {
+    // Store form data in sessionStorage to restore after login
+    if (form.getValues()) {
+      sessionStorage.setItem('pendingUploadForm', JSON.stringify(form.getValues()));
+      sessionStorage.setItem('pendingUploadStatus', 'true');
+    }
+    toast.info("Please sign in to upload your app");
+    navigate("/login", { state: { returnPath: "/upload" } });
+  };
+
+  // Restore form data if returning from login
+  useEffect(() => {
+    const pendingForm = sessionStorage.getItem('pendingUploadForm');
+    if (pendingForm) {
+      try {
+        const formData = JSON.parse(pendingForm);
+        form.reset(formData);
+        sessionStorage.removeItem('pendingUploadForm');
+      } catch (error) {
+        console.error("Error restoring form data:", error);
+      }
+    }
+    
+    const pendingStatus = sessionStorage.getItem('pendingUploadStatus');
+    if (pendingStatus) {
+      sessionStorage.removeItem('pendingUploadStatus');
+      toast.info("You can now continue with your app upload");
+    }
+  }, [form]);
+
   const onSubmit = async (data: UploadFormData) => {
+    // Check for required files
     if (!apkFile) {
       toast.error("Please upload an APK file");
       return;
@@ -138,45 +203,58 @@ const UploadApp = () => {
       return;
     }
 
-    setUploading(true);
+    // Check session
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) {
+      handleLoginRedirect();
+      return;
+    }
 
+    setUploading(true);
+    
     try {
-      // Check if user is logged in
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !userData.user) {
-        toast.error("You must be logged in to upload an app");
-        navigate("/login");
-        return;
-      }
-      
       const userId = userData.user.id;
+      const appId = uuidv4();
       
       // 1. Upload the APK to storage
-      const appId = uuidv4();
+      setUploadStatus({
+        step: "Uploading APK file...",
+        progress: 20
+      });
+      
       const apkFileName = `${appId}/${apkFile.name.replace(/\s+/g, '-').toLowerCase()}`;
-      const { error: apkError, data: apkData } = await supabase.storage
+      const { error: apkError } = await supabase.storage
         .from('app_files')
         .upload(apkFileName, apkFile);
         
       if (apkError) throw new Error(`APK upload failed: ${apkError.message}`);
       
       // 2. Upload the icon
+      setUploadStatus({
+        step: "Uploading app icon...",
+        progress: 40
+      });
+      
       const iconFileName = `${appId}/icon-${Date.now()}.${iconFile.name.split('.').pop()}`;
-      const { error: iconError, data: iconData } = await supabase.storage
+      const { error: iconError } = await supabase.storage
         .from('app_images')
         .upload(iconFileName, iconFile);
         
       if (iconError) throw new Error(`Icon upload failed: ${iconError.message}`);
       
       // 3. Upload the screenshots
+      setUploadStatus({
+        step: "Uploading screenshots...",
+        progress: 60
+      });
+      
       const screenshotUrls: string[] = [];
       
       for (let i = 0; i < screenshots.length; i++) {
         const screenshot = screenshots[i];
         const screenshotFileName = `${appId}/screenshot-${i + 1}.${screenshot.name.split('.').pop()}`;
         
-        const { error: screenshotError, data: screenshotData } = await supabase.storage
+        const { error: screenshotError } = await supabase.storage
           .from('app_images')
           .upload(screenshotFileName, screenshot);
           
@@ -199,6 +277,11 @@ const UploadApp = () => {
         .getPublicUrl(iconFileName).data.publicUrl;
       
       // 4. Create a record in the apps table
+      setUploadStatus({
+        step: "Publishing your app...",
+        progress: 80
+      });
+      
       const { error: appError } = await supabase
         .from('apps')
         .insert({
@@ -215,20 +298,42 @@ const UploadApp = () => {
         
       if (appError) throw new Error(`App record creation failed: ${appError.message}`);
       
+      setUploadStatus({
+        step: "App published successfully!",
+        progress: 100,
+        appId: appId
+      });
+      
       toast.success("App uploaded and published successfully!");
       
-      // Redirect to the app detail page
+      // After 2 seconds, redirect to the app detail page
       setTimeout(() => {
         navigate(`/app/${appId}`);
       }, 2000);
       
     } catch (error) {
       console.error("Error uploading app:", error);
+      setUploadStatus({
+        step: "Upload failed",
+        progress: 0,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
       toast.error(`Error uploading app: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setUploading(false);
     }
   };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="container mx-auto py-20 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Loading...</p>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -241,6 +346,44 @@ const UploadApp = () => {
                 Share your Android application with our community. Your app will be published immediately after upload.
               </p>
             </div>
+            
+            {uploadStatus && uploadStatus.progress > 0 && (
+              <div className="p-6 border-b">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium">{uploadStatus.step}</span>
+                  <span className="text-sm text-gray-500">{uploadStatus.progress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className={`h-2.5 rounded-full ${
+                      uploadStatus.error ? "bg-red-500" : 
+                      uploadStatus.progress === 100 ? "bg-green-500" : "bg-brand-500"
+                    }`} 
+                    style={{ width: `${uploadStatus.progress}%` }}
+                  ></div>
+                </div>
+                
+                {uploadStatus.error && (
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>
+                      {uploadStatus.error}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                {uploadStatus.progress === 100 && !uploadStatus.error && (
+                  <Alert className="mt-4 border-green-200 bg-green-50">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <AlertTitle className="text-green-700">Success!</AlertTitle>
+                    <AlertDescription className="text-green-600">
+                      Your app has been successfully published. Redirecting to your app page...
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
             
             <div className="p-8">
               <Form {...form}>
@@ -622,8 +765,8 @@ const UploadApp = () => {
                     >
                       {uploading ? (
                         <>
-                          <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
-                          Uploading and Publishing...
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Uploading...
                         </>
                       ) : (
                         <>
