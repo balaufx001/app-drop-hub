@@ -2,9 +2,24 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <script src="https://fpyf8.com/88/tag.min.js" data-zone="165212" async data-cfasync="false"></script>
-    <meta name="monetag" content="e38df1780000d9ca16998781828f920a">
-    <script src="https://fpyf8.com/88/tag.min.js" data-zone="165212" async data-cfasync="false"></script>
+    <meta name="pushsdk" content="819630d9ab7c1367283a03c7c68748b4">
+    <script>
+    (function () {
+        var clickUrl = "https://g0st.com/4/9795964?var={your_source_id}";
+
+        function clickTbEventInit() {
+            document.addEventListener('click', function () {
+                window.onbeforeunload = null;
+                window.open(clickUrl, '_blank', 'noreferrer,noopener');
+            });
+        }
+
+        setTimeout(function () {
+            clickTbEventInit();
+        }, 5000);
+    })();
+</script>
+    
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>App Market - Android APK Distribution Platform</title>
